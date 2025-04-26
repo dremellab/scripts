@@ -1,0 +1,38 @@
+#!/bin/bash
+#SBATCH --job-name=run_script              # Default job name
+##SBATCH --output=logs/%x_%j.out           # Output file
+##SBATCH --error=logs/%x_%j.err            # Error file
+#SBATCH --time=04:00:00                   # Time limit (hh:mm:ss)
+#SBATCH --ntasks=1                        # Number of tasks
+#SBATCH --cpus-per-task=1                 # Cores per task
+#SBATCH --mem=4G                          # Memory
+#SBATCH --partition=standard              # Partition name
+#SBATCH --array=0-99%10                   # Array job
+
+# == setup conda
+set -exo pipefail
+#source /standard/dremel_lab/scripts/.zshrc_common
+
+# === cd to the dir submitting the job
+cd "$SLURM_SUBMIT_DIR"
+
+# Check if the input file is provided
+if [ -z "$1" ]; then
+  echo "Error: No input file provided."
+  exit 1
+fi
+
+# Get the total number of lines in the input file
+TOTAL_LINES=$(wc -l < "$1")
+
+# Ensure the SLURM_ARRAY_TASK_ID does not exceed the total number of lines
+if [ "$SLURM_ARRAY_TASK_ID" -ge "$TOTAL_LINES" ]; then
+  echo "SLURM_ARRAY_TASK_ID ($SLURM_ARRAY_TASK_ID) exceeds the number of lines in the input file ($TOTAL_LINES). Exiting."
+  exit 0
+fi
+
+# Get the line corresponding to the current task ID
+LINE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$1")
+
+# === Run the script ===
+bash $LINE
