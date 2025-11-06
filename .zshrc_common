@@ -1,7 +1,0 @@
-export PATH="/standard/dremel_lab/conda/miniconda/bin:$PATH"
-export PATH="/standard/dremel_lab/scripts/bin:$PATH"
-export PIPELINES_HOME="/standard/dremel_lab/workflows/pipelines"
-export PROJECT="/project/dremel_lab"
-export STANDARD="/standard/dremel_lab"
-export SANDBOX="${PROJECT}/sandbox"
-source /standard/dremel_lab/conda/miniconda/etc/profile.d/conda.sh
