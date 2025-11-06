@@ -4,6 +4,12 @@ import subprocess
 import sys
 import os
 import re
+from pprint import pprint
+
+def safe_parse_mem(x):
+    if not x or str(x).strip() in ["", "None", "Unknown"]:
+        return float("nan")
+    return parse_mem_to_gb(x)
 
 # Graceful imports
 try:
@@ -96,24 +102,39 @@ def parse_mem_to_gb(mem_str):
 
 
 def extract_jobids_from_file(filepath):
-    """Extract SLURM job IDs from a Snakemake or Nextflow log file."""
-    job_ids = []
+    """Extract SLURM job IDs from Snakemake (old/new) or Nextflow log file."""
+    job_ids = set()
     try:
         with open(filepath, "r") as f:
             for line in f:
-                # Match Snakemake pattern: external jobid '12345' or "12345"
-                match_snakemake = re.search(r"external jobid\s+['\"](\d+)['\"]", line)
-                if match_snakemake:
-                    job_ids.append(match_snakemake.group(1))
-                    continue  # no need to check further if matched
+                # Snakemake old style: external jobid '12345'
+                match_old = re.search(r"external jobid\s+['\"](\d+)['\"]", line)
+                if match_old:
+                    job_ids.add(match_old.group(1))
+                    continue
 
-                # Match Nextflow pattern: (JOB ID: 12345)
+                # Snakemake >=9 style: SLURM jobid 12345
+                match_new = re.search(r"SLURM jobid (\d+)", line)
+                if match_new:
+                    job_ids.add(match_new.group(1))
+                    continue
+
+                # Nextflow style: (JOB ID: 12345)
                 match_nextflow = re.search(r"\(JOB ID:\s*(\d+)\)", line)
                 if match_nextflow:
-                    job_ids.append(match_nextflow.group(1))
+                    job_ids.add(match_nextflow.group(1))
+                    continue
+
+                # Nextflow style: (jobId: 4622519;)
+                match_nextflow = re.search(r'\[Task submitter\].*jobId:\s*(\d+);', line)
+                if match_nextflow:
+                    job_ids.add(match_nextflow.group(1))
+                    continue
+
     except FileNotFoundError:
         print(f"❌ File not found: {filepath}")
-    return list(sorted(set(job_ids))) # deduplicate
+
+    return sorted(job_ids)
 
 
 
@@ -202,7 +223,8 @@ def main():
 
     # convert Memory to GB
     df['ReqMem'] = df['ReqMem'].apply(parse_mem_to_gb).round(2)
-    df['MaxMemUsed'] = df['MaxMemUsed'].apply(parse_mem_to_gb).round(2)
+    # df['MaxMemUsed'] = df['MaxMemUsed'].apply(parse_mem_to_gb).round(2)
+    df["MaxMemUsed"] = df["MaxMemUsed"].apply(safe_parse_mem).astype(float).round(2)
 
     # Split ExitCode into ExitCode and KillSignal
     exit_split = df['ExitCode'].str.split(':', expand=True)
