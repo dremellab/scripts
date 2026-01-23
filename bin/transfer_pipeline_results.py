@@ -35,7 +35,7 @@ PIPELINE_CONFIG: Dict[str, Dict] = {
     "harold": {
         "dest_root": "/dtn/landings/storage/leased/vol_dremellab/_HTS/{sampleSetName}/_Outputs",
         "rules": [
-            {"kind": "path", "path": "config/samples.tsv", "dest": "config/samples.tsv"},
+            {"kind": "path", "path": "samples.tsv", "dest": "config/samples.tsv"},
             {"kind": "path", "path": "config.yaml", "dest": "config/config.yaml"},
             {"kind": "path", "path": "config/rivanna/config.yaml", "dest": "config/rivanna/config.yaml"},
             {
