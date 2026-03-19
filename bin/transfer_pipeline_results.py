@@ -52,7 +52,12 @@ PIPELINE_CONFIG: Dict[str, Dict] = {
             {"kind": "path", "path": "config/rivanna/config.yaml", "dest": "config/rivanna/config.yaml"},
             {"kind": "path", "path": "results/alignmentqc/alignment_summary.tsv", "dest": "qc/alignment_summary.tsv"},
             {"kind": "suffix", "suffixes": [".bw", ".bb"], "dest": "bigwigs"},
-            {"kind": "dir", "dir_name": "counts", "dest": "counts"},
+            {
+                "kind": "dir",
+                "dir_name": "counts",
+                "dest": "counts",
+                "exclude_prefixes": ["counts/normalized_counts/.quarto/"],
+            },
             {"kind": "path", "path": "results/multiqc_report.html", "dest": "qc/multiqc_report.html"},
             {"kind": "dir", "dir_name": "results/multiqc_data", "dest": "qc/multiqc_data"},
         ],
@@ -138,6 +143,8 @@ def match_rule(relpath: str, rule: Dict) -> str | None:
     elif kind == "dir":
         dir_name = rule.get("dir_name")
         if not dir_name:
+            return None
+        if any(relpath.startswith(prefix) for prefix in rule.get("exclude_prefixes", [])):
             return None
         parts = relpath.split("/")
         if dir_name in parts:
