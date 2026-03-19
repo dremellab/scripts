@@ -28,6 +28,7 @@ DEFAULT_PROJECT = os.environ.get("PROJECT", "/project/dremel_lab")
 DEFAULT_LOOKUP = os.path.join(DEFAULT_PROJECT, "analysis", "lookup.tsv")
 DEFAULT_ANALYSIS_DIR = os.path.join(DEFAULT_PROJECT, "analysis")
 DEFAULT_SOURCE_ROOT = "/dtn/landings/users/c/cu/cud2td/project/dremel_lab/analysis"
+DEFAULT_SOURCE_MOUNT_ROOT = "/dtn/landings/users/c/cu/cud2td"
 DEFAULT_SOURCE_UUID = "af187d15-768f-4449-8670-d00e1eb1ce6a"
 DEFAULT_DESTINATION_UUID = "af187d15-768f-4449-8670-d00e1eb1ce6a"
 LAPTOP_DESTINATION_UUID = "6bfd96d9-050c-11f0-ad00-0e283342ad7b"
@@ -178,6 +179,12 @@ def ensure_trailing_slash(path: str) -> str:
     return path if path.endswith("/") else path + "/"
 
 
+def resolve_source_root(source_uuid: str, source_root: str, analysis_dir: str) -> str:
+    if source_uuid == DEFAULT_SOURCE_UUID:
+        return os.path.join(DEFAULT_SOURCE_MOUNT_ROOT, os.path.abspath(analysis_dir).lstrip("/"))
+    return source_root
+
+
 def ensure_globus_env() -> None:
     if os.environ.get("TRANSFER_PIPELINE_RESULTS_ENV_CHECK") == "1":
         return
@@ -259,6 +266,7 @@ def main() -> None:
         rules = rules + [BAM_RULE]
 
     analysis_dir = args.analysis_dir
+    source_root = resolve_source_root(args.source_uuid, args.source_root, analysis_dir)
     source_dir = resolve_workdir(row, args.sampleSetName, analysis_dir)
     if not os.path.isdir(source_dir):
         raise SystemExit(f"Source directory not found: {source_dir}")
@@ -294,7 +302,7 @@ def main() -> None:
             "Provide a compatible --analysis-dir/--source-root or update lookup.tsv."
         )
 
-    source_path = ensure_trailing_slash(os.path.join(args.source_root, rel_workdir))
+    source_path = ensure_trailing_slash(os.path.join(source_root, rel_workdir))
     if args.transfer_type == "rivanna-to-laptop":
         dest_root = LAPTOP_DEST_ROOT.format(
             sampleSetName=args.sampleSetName,
