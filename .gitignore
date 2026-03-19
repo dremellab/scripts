@@ -1,2 +1,13 @@
 **/*slurm*.err
 **/*slurm*.out
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
