@@ -52,6 +52,7 @@ PIPELINE_CONFIG: Dict[str, Dict] = {
             {"kind": "path", "path": "config/rivanna/config.yaml", "dest": "config/rivanna/config.yaml"},
             {"kind": "path", "path": "results/alignmentqc/alignment_summary.tsv", "dest": "qc/alignment_summary.tsv"},
             {"kind": "suffix", "suffixes": [".bw", ".bb"], "dest": "bigwigs"},
+            {"kind": "suffix", "suffixes": ["SJ.out.tab"], "dest": "SJ"},
             {
                 "kind": "dir",
                 "dir_name": "counts",
