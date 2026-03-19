@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+import subprocess
+import sys
+import os
+import argparse
+import re
+
+def run_command(cmd):
+    """Helper to run shell commands and return output."""
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        return result.stdout.strip()
+    except Exception:
+        return ""
+
+def process_job_id(jid):
+    """Extracts job details, cleans the rule name, and finds the log path."""
+    raw_output = run_command(f"jobby {jid} --tsv")
+    if not raw_output:
+        return None, None
+    
+    lines = raw_output.splitlines()
+    if len(lines) < 2:
+        return None, None
+    
+    header = lines[0]
+    data_line = next((line for line in lines[1:] if line.startswith(str(jid))), None)
+            
+    if not data_line:
+        return None, header
+
+    # Extract WorkDir (last column) and search for logs
+    columns = data_line.split('\t')
+    workdir = columns[-1]
+    
+    log_path, rule_name = "NOT_FOUND", "UNKNOWN"
+    log_dir = os.path.join(workdir, "logs")
+    
+    if os.path.exists(log_dir):
+        for root, _, files in os.walk(log_dir):
+            for file in files:
+                if str(jid) in file and file.endswith(".log"):
+                    log_path = os.path.join(root, file)
+                    parts = root.split(os.sep)
+                    if "logs" in parts:
+                        idx = parts.index("logs")
+                        if idx + 1 < len(parts):
+                            rule_name = parts[idx+1].replace("rule_", "")
+                    break
+    
+    return f"{data_line}\t{rule_name}\t{log_path}", header
+
+
+def extract_jobids_from_file(filepath):
+    """Extract SLURM job IDs from Snakemake/Nextflow log files."""
+    job_ids = set()
+    try:
+        with open(filepath, "r") as f:
+            for line in f:
+                match_old = re.search(r"external jobid\s+['\"](\d+)['\"]", line)
+                if match_old:
+                    job_ids.add(match_old.group(1))
+                    continue
+
+                match_new = re.search(r"SLURM jobid (\d+)", line)
+                if match_new:
+                    job_ids.add(match_new.group(1))
+                    continue
+
+                match_nextflow = re.search(r"\(JOB ID:\s*(\d+)\)", line)
+                if match_nextflow:
+                    job_ids.add(match_nextflow.group(1))
+                    continue
+
+                match_nextflow_submitter = re.search(r"\[Task submitter\].*jobId:\s*(\d+);", line)
+                if match_nextflow_submitter:
+                    job_ids.add(match_nextflow_submitter.group(1))
+                    continue
+    except FileNotFoundError:
+        return []
+
+    return sorted(job_ids, key=int)
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Enhanced jobby tool for Snakemake/Slurm. "
+                    "Resolves RuleNames and LogPaths automatically.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Examples:\n"
+               "  jobbyplus 7667422          # Deep dive into a specific JobID\n"
+               "  jobbyplus 0bccf03f         # Find and dive into all jobs matching this string"
+    )
+    parser.add_argument(
+        "query", 
+        help="A numeric JobID or a search string (e.g., Snakemake hash or job name)."
+    )
+    
+    args = parser.parse_args()
+    query = args.query
+    
+    # Case 1: Argument is a Job ID (Numeric)
+    if query.isdigit():
+        result, header = process_job_id(query)
+        if result:
+            print(f"{header}\tRuleName\tLogFilePath")
+            print(result)
+        else:
+            print(f"No data found for Job ID: {query}")
+
+    # Case 2: Argument is a log file path
+    elif os.path.isfile(query):
+        job_ids = extract_jobids_from_file(query)
+        if not job_ids:
+            print(f"No job IDs found in file: {query}")
+            sys.exit(0)
+
+        printed_header = False
+        found_any = False
+        for jid in job_ids:
+            result, header = process_job_id(jid)
+            if result:
+                if not printed_header and header:
+                    print(f"{header}\tRuleName\tLogFilePath")
+                    printed_header = True
+                print(result)
+                found_any = True
+
+        if not found_any:
+            print(f"No data found for extracted job IDs in file: {query}")
+
+    # Case 3: Argument is a Search String
+    else:
+        user = os.environ.get('USER', 'cud2td')
+        squeue_out = run_command(f"squeue -u {user} -o '%.18i %.50j' --noheader")
+        
+        # FIXED LINE 83: Correctly closed list comprehension
+        job_ids = [line.split()[0] for line in squeue_out.splitlines() if query in line]
+        
+        if not job_ids:
+            print(f"No running jobs found matching: {query}")
+            sys.exit(0)
+
+        # Print header once using the first ID found
+        _, header = process_job_id(job_ids[0])
+        if header:
+            print(f"{header}\tRuleName\tLogFilePath")
+        
+        for jid in job_ids:
+            result, _ = process_job_id(jid)
+            if result:
+                print(result)
+
+if __name__ == "__main__":
+    main()
