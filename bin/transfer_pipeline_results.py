@@ -28,7 +28,12 @@ DEFAULT_PROJECT = os.environ.get("PROJECT", "/project/dremel_lab")
 DEFAULT_LOOKUP = os.path.join(DEFAULT_PROJECT, "analysis", "lookup.tsv")
 DEFAULT_ANALYSIS_DIR = os.path.join(DEFAULT_PROJECT, "analysis")
 DEFAULT_SOURCE_ROOT = "/dtn/landings/users/c/cu/cud2td/project/dremel_lab/analysis"
-DEFAULT_GLOBUS_UUID = "af187d15-768f-4449-8670-d00e1eb1ce6a"
+DEFAULT_SOURCE_UUID = "af187d15-768f-4449-8670-d00e1eb1ce6a"
+DEFAULT_DESTINATION_UUID = "af187d15-768f-4449-8670-d00e1eb1ce6a"
+LAPTOP_DESTINATION_UUID = "6bfd96d9-050c-11f0-ad00-0e283342ad7b"
+LAPTOP_DEST_ROOT = "/Users/vishal/Documents/Data/Analysis/{sampleSetName}"
+S3_DESTINATION_UUID = "577d6907-4263-49a4-b0c7-3f6b80064d0b"
+S3_DEST_ROOT = "/dremel-lab-bucket/_HTS/{sampleSetName}"
 
 
 PIPELINE_CONFIG: Dict[str, Dict] = {
@@ -189,7 +194,22 @@ def main() -> None:
     parser.add_argument("--lookup", default=DEFAULT_LOOKUP, help="Path to lookup.tsv")
     parser.add_argument("--analysis-dir", default=DEFAULT_ANALYSIS_DIR, help="Local analysis root")
     parser.add_argument("--source-root", default=DEFAULT_SOURCE_ROOT, help="Globus source root")
-    parser.add_argument("--auth-id", default=DEFAULT_GLOBUS_UUID, help="Globus endpoint UUID")
+    parser.add_argument(
+        "--transfer-type",
+        choices=("rivanna-to-topaz", "rivanna-to-laptop", "rivanna-to-s3"),
+        default="rivanna-to-topaz",
+        help="Transfer route to select default endpoint UUIDs",
+    )
+    parser.add_argument(
+        "--source-uuid",
+        default=DEFAULT_SOURCE_UUID,
+        help="Globus source endpoint UUID",
+    )
+    parser.add_argument(
+        "--destination-uuid",
+        default=DEFAULT_DESTINATION_UUID,
+        help="Globus destination endpoint UUID",
+    )
     parser.add_argument("--filelist", help="Override filelist path")
     parser.add_argument("--batchfile", help="Override batchfile path")
     parser.add_argument(
@@ -199,6 +219,10 @@ def main() -> None:
     )
     parser.add_argument("--dry-run", action="store_true", help="Print transfer command only")
     args = parser.parse_args()
+    if args.transfer_type == "rivanna-to-laptop" and args.destination_uuid == DEFAULT_DESTINATION_UUID:
+        args.destination_uuid = LAPTOP_DESTINATION_UUID
+    elif args.transfer_type == "rivanna-to-s3" and args.destination_uuid == DEFAULT_DESTINATION_UUID:
+        args.destination_uuid = S3_DESTINATION_UUID
 
     lookup = load_lookup_table(args.lookup)
     row = lookup.get(args.sampleSetName)
@@ -252,18 +276,29 @@ def main() -> None:
         )
 
     source_path = ensure_trailing_slash(os.path.join(args.source_root, rel_workdir))
-    dest_root = config["dest_root"].format(
-        sampleSetName=args.sampleSetName,
-        pipelineName=pipeline,
-    )
+    if args.transfer_type == "rivanna-to-laptop":
+        dest_root = LAPTOP_DEST_ROOT.format(
+            sampleSetName=args.sampleSetName,
+            pipelineName=pipeline,
+        )
+    elif args.transfer_type == "rivanna-to-s3":
+        dest_root = S3_DEST_ROOT.format(
+            sampleSetName=args.sampleSetName,
+            pipelineName=pipeline,
+        )
+    else:
+        dest_root = config["dest_root"].format(
+            sampleSetName=args.sampleSetName,
+            pipelineName=pipeline,
+        )
     dest_path = ensure_trailing_slash(dest_root)
     cmd = [
         "globus",
         "transfer",
         "--batch",
         batchfile_path,
-        f"{args.auth_id}:{source_path}",
-        f"{args.auth_id}:{dest_path}",
+        f"{args.source_uuid}:{source_path}",
+        f"{args.destination_uuid}:{dest_path}",
     ]
     if args.dry_run:
         print("[dry-run]", " ".join(cmd))
