@@ -44,6 +44,12 @@ BAM_RULE = {
     "exclude_substrings": ["Aligned.out.bam"],
 }
 
+BW_RULE = {
+    "kind": "suffix",
+    "suffixes": [".bw", ".bb"],
+    "dest": "bigwigs",
+}
+
 PIPELINE_CONFIG: Dict[str, Dict] = {
     "harold": {
         "dest_root": "/dtn/landings/storage/leased/vol_dremellab/_HTS/{sampleSetName}/_Outputs",
@@ -52,7 +58,7 @@ PIPELINE_CONFIG: Dict[str, Dict] = {
             {"kind": "path", "path": "config.yaml", "dest": "config/config.yaml"},
             {"kind": "path", "path": "config/rivanna/config.yaml", "dest": "config/rivanna/config.yaml"},
             {"kind": "path", "path": "results/alignmentqc/alignment_summary.tsv", "dest": "qc/alignment_summary.tsv"},
-            {"kind": "suffix", "suffixes": [".bw", ".bb"], "dest": "bigwigs"},
+            BW_RULE,
             {"kind": "suffix", "suffixes": ["SJ.out.tab"], "dest": "SJ"},
             {
                 "kind": "dir",
@@ -239,6 +245,11 @@ def main() -> None:
         action="store_true",
         help="Include .bam and .bai files in transfer (excluded by default)",
     )
+    parser.add_argument(
+        "--exclude-bw",
+        action="store_true",
+        help="Exclude .bw and .bb files from transfer",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print transfer command only")
     args = parser.parse_args()
     if args.transfer_type == "rivanna-to-laptop" and args.destination_uuid == DEFAULT_DESTINATION_UUID:
@@ -260,7 +271,10 @@ def main() -> None:
     rules = config.get("rules", [])
     if not rules:
         raise SystemExit(f"No transfer rules configured for pipeline: {pipeline}")
-    
+
+    if args.exclude_bw:
+        rules = [rule for rule in rules if rule is not BW_RULE]
+
     # Conditionally add BAM rule if --include-bam is specified
     if args.include_bam:
         rules = rules + [BAM_RULE]
