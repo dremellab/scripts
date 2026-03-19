@@ -36,6 +36,13 @@ S3_DESTINATION_UUID = "577d6907-4263-49a4-b0c7-3f6b80064d0b"
 S3_DEST_ROOT = "/dremel-lab-bucket/_HTS/{sampleSetName}"
 
 
+BAM_RULE = {
+    "kind": "suffix",
+    "suffixes": [".bam", ".bai"],
+    "dest": "bams",
+    "exclude_substrings": ["Aligned.out.bam"],
+}
+
 PIPELINE_CONFIG: Dict[str, Dict] = {
     "harold": {
         "dest_root": "/dtn/landings/storage/leased/vol_dremellab/_HTS/{sampleSetName}/_Outputs",
@@ -43,12 +50,6 @@ PIPELINE_CONFIG: Dict[str, Dict] = {
             {"kind": "path", "path": "samples.tsv", "dest": "config/samples.tsv"},
             {"kind": "path", "path": "config.yaml", "dest": "config/config.yaml"},
             {"kind": "path", "path": "config/rivanna/config.yaml", "dest": "config/rivanna/config.yaml"},
-            {
-                "kind": "suffix",
-                "suffixes": [".bam", ".bai"],
-                "dest": "bams",
-                "exclude_substrings": ["Aligned.out.bam"],
-            },
             {"kind": "suffix", "suffixes": [".bw", ".bb"], "dest": "bigwigs"},
             {"kind": "dir", "dir_name": "counts", "dest": "counts"},
             {"kind": "dir", "dir_name": "multiqc_data", "dest": "multiqc_data"},
@@ -217,6 +218,11 @@ def main() -> None:
         action="store_true",
         help="Keep generated filelist and batchfile (default: delete after transfer)",
     )
+    parser.add_argument(
+        "--include-bam",
+        action="store_true",
+        help="Include .bam and .bai files in transfer (excluded by default)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print transfer command only")
     args = parser.parse_args()
     if args.transfer_type == "rivanna-to-laptop" and args.destination_uuid == DEFAULT_DESTINATION_UUID:
@@ -238,6 +244,10 @@ def main() -> None:
     rules = config.get("rules", [])
     if not rules:
         raise SystemExit(f"No transfer rules configured for pipeline: {pipeline}")
+    
+    # Conditionally add BAM rule if --include-bam is specified
+    if args.include_bam:
+        rules = rules + [BAM_RULE]
 
     analysis_dir = args.analysis_dir
     source_dir = resolve_workdir(row, args.sampleSetName, analysis_dir)
