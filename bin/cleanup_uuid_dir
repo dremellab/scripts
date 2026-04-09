@@ -6,21 +6,24 @@ if [[ "${1:-}" == "--delete" ]]; then
     DELETE=true
 fi
 
-FOLDER="/scratch/${USER}/"
-
-UUID_REGEX='./[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+FOLDER="/scratch/${USER}"
+UUID_BASENAME_REGEX='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
 echo "Scanning: ${FOLDER}"
-echo "Matching UUID-named directories older than 15 days..."
+echo "Matching UUID-named directories older than 10 days..."
 echo
 
-mapfile -d '' dirs < <(
-    find $FOLDER \
+dirs=()
+while IFS= read -r -d '' d; do
+    base=$(basename "$d")
+    if [[ $base =~ $UUID_BASENAME_REGEX ]]; then
+        dirs+=("$d")
+    fi
+done < <(
+    find "$FOLDER" \
         -mindepth 1 -maxdepth 1 \
         -type d \
-        -regextype posix-extended \
-        -regex "$UUID_REGEX" \
-        -mtime +15 \
+        -mtime +10 \
         -print0
 )
 
@@ -35,12 +38,8 @@ for d in "${dirs[@]}"; do
 done
 echo
 
-# --- SIZE CALCULATION ---
 echo "Calculating total size..."
-
-TOTAL_BYTES=$(du -sb "${dirs[@]}" 2>/dev/null | awk '{sum+=$1} END {print sum}')
-
-# Convert to human readable
+TOTAL_BYTES=$(du -sb -- "${dirs[@]}" 2>/dev/null | awk '{sum+=$1} END {print sum+0}')
 human_size=$(numfmt --to=iec --suffix=B "$TOTAL_BYTES")
 
 echo "Total space to be freed: $human_size"

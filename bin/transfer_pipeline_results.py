@@ -69,7 +69,7 @@ PIPELINE_CONFIG: Dict[str, Dict] = {
                 "kind": "dir",
                 "dir_name": "counts",
                 "dest": "counts",
-                "exclude_prefixes": ["counts/normalized_counts/.quarto/"],
+                "exclude_substrings": ["counts/normalized_counts/.quarto/"],
             },
             {"kind": "path", "path": "results/multiqc_report.html", "dest": "qc/multiqc_report.html"},
             {"kind": "dir", "dir_name": "results/multiqc_data", "dest": "qc/multiqc_data"},
@@ -157,16 +157,19 @@ def match_rule(relpath: str, rule: Dict) -> str | None:
         dir_name = rule.get("dir_name")
         if not dir_name:
             return None
-        if any(relpath.startswith(prefix) for prefix in rule.get("exclude_prefixes", [])):
+        if any(s in relpath for s in rule.get("exclude_substrings", [])):
             return None
-        parts = relpath.split("/")
-        if dir_name in parts:
-            idx = parts.index(dir_name)
-            subpath = "/".join(parts[idx + 1 :])
-            if not subpath:
-                return None
-            dest_dir = rule.get("dest", dir_name)
-            return f"{dest_dir}/{subpath}"
+        dir_path = dir_name.strip("/")
+        marker = f"/{dir_path}/"
+        relpath_with_leading_slash = f"/{relpath}"
+        idx = relpath_with_leading_slash.find(marker)
+        if idx == -1:
+            return None
+        subpath = relpath_with_leading_slash[idx + len(marker) :]
+        if not subpath:
+            return None
+        dest_dir = rule.get("dest", dir_path)
+        return f"{dest_dir}/{subpath}"
     return None
 
 
