@@ -1,5 +1,6 @@
 **/*slurm*.err
 **/*slurm*.out
+logs/
 # Python cache and bytecode
 __pycache__/
 *.py[cod]
