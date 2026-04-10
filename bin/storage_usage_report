@@ -1,0 +1,181 @@
+#!/bin/bash
+set -euo pipefail
+
+INFILE="${1:-${INFILE:-$HOME/storage_usage.tsv}}"
+TARGET_DATE="${TARGET_DATE:-$(date '+%Y-%m-%d')}"
+
+if [[ ! -f "$INFILE" ]]; then
+    printf "storage_usage_report: file not found: %s\n" "$INFILE" >&2
+    exit 1
+fi
+
+supports_color=false
+if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
+    supports_color=true
+fi
+
+if $supports_color; then
+    c_reset=$'\033[0m'
+    c_bold=$'\033[1m'
+    c_dim=$'\033[2m'
+    c_header=$'\033[1;97;44m'
+    c_border=$'\033[38;5;244m'
+    c_scratch=$'\033[38;5;213m'
+    c_home=$'\033[38;5;81m'
+    c_standard=$'\033[38;5;121m'
+    c_project=$'\033[38;5;220m'
+    c_good=$'\033[38;5;120m'
+    c_bad=$'\033[38;5;203m'
+else
+    c_reset=""
+    c_bold=""
+    c_dim=""
+    c_header=""
+    c_border=""
+    c_scratch=""
+    c_home=""
+    c_standard=""
+    c_project=""
+    c_good=""
+    c_bad=""
+fi
+
+mapfile -t rows < <(
+    awk -F'\t' -v target_date="$TARGET_DATE" '
+        NR == 1 { next }
+        NF >= 4 {
+            split($1, ts_parts, " ")
+            if (ts_parts[1] != target_date) {
+                next
+            }
+            lines[++n] = $0
+            latest = $1
+        }
+        END {
+            if (n == 0) {
+                exit 1
+            }
+            for (i = 1; i <= n; i++) {
+                split(lines[i], f, FS)
+                if (f[1] != latest) {
+                    continue
+                }
+                bytes = f[4]
+                tb = (length(f[5]) > 0) ? f[5] : "NA"
+                if (tb == "NA" && bytes ~ /^[0-9]+$/) {
+                    tb = sprintf("%.3f", bytes / 1000000000000)
+                }
+                printf "%s\t%s\t%s\t%s\t%s\n", f[1], f[2], f[3], bytes, tb
+            }
+        }
+    ' "$INFILE"
+)
+
+if [[ ${#rows[@]} -eq 0 ]]; then
+    printf "storage_usage_report: no data rows found for %s in %s\n" "$TARGET_DATE" "$INFILE" >&2
+    exit 1
+fi
+
+timestamp=""
+declare -a locations paths bytes_vals tb_vals
+w_location=8
+w_path=4
+w_bytes=5
+w_tb=2
+
+for row in "${rows[@]}"; do
+    IFS=$'\t' read -r ts location path bytes tb <<< "$row"
+    timestamp="$ts"
+    locations+=("$location")
+    paths+=("$path")
+    bytes_vals+=("$bytes")
+    tb_vals+=("$tb")
+
+    (( ${#location} > w_location )) && w_location=${#location}
+    (( ${#path} > w_path )) && w_path=${#path}
+    (( ${#bytes} > w_bytes )) && w_bytes=${#bytes}
+    (( ${#tb} > w_tb )) && w_tb=${#tb}
+done
+
+repeat_char() {
+    local count="$1"
+    local char="$2"
+    local out=""
+    for ((i = 0; i < count; i++)); do
+        out+="$char"
+    done
+    printf "%s" "$out"
+}
+
+print_border() {
+    printf "%s+-%s-+-%s-+-%s-+-%s-+%s\n" \
+        "$c_border" \
+        "$(repeat_char "$w_location" "-")" \
+        "$(repeat_char "$w_path" "-")" \
+        "$(repeat_char "$w_bytes" "-")" \
+        "$(repeat_char "$w_tb" "-")" \
+        "$c_reset"
+}
+
+print_text_cell() {
+    local width="$1"
+    local text="$2"
+    local color="$3"
+    printf "%s%-*s%s" "$color" "$width" "$text" "$c_reset"
+}
+
+print_num_cell() {
+    local width="$1"
+    local text="$2"
+    local color="$3"
+    printf "%s%*s%s" "$color" "$width" "$text" "$c_reset"
+}
+
+location_color() {
+    case "$1" in
+        scratch) printf "%s" "$c_scratch" ;;
+        home) printf "%s" "$c_home" ;;
+        standard) printf "%s" "$c_standard" ;;
+        project) printf "%s" "$c_project" ;;
+        *) printf "%s" "$c_bold" ;;
+    esac
+}
+
+value_color() {
+    if [[ "$1" == "NA" ]]; then
+        printf "%s" "$c_bad"
+    else
+        printf "%s" "$c_good"
+    fi
+}
+
+printf "%sStorage Usage Snapshot%s %s%s%s\n" "$c_bold" "$c_reset" "$c_dim" "$timestamp" "$c_reset"
+print_border
+printf "| "
+print_text_cell "$w_location" "Location" "$c_header"
+printf " | "
+print_text_cell "$w_path" "Path" "$c_header"
+printf " | "
+print_num_cell "$w_bytes" "Bytes" "$c_header"
+printf " | "
+print_num_cell "$w_tb" "TB" "$c_header"
+printf " |\n"
+print_border
+
+for i in "${!locations[@]}"; do
+    loc_color="$(location_color "${locations[$i]}")"
+    bytes_color="$(value_color "${bytes_vals[$i]}")"
+    tb_color="$(value_color "${tb_vals[$i]}")"
+
+    printf "| "
+    print_text_cell "$w_location" "${locations[$i]}" "$loc_color"
+    printf " | "
+    print_text_cell "$w_path" "${paths[$i]}" ""
+    printf " | "
+    print_num_cell "$w_bytes" "${bytes_vals[$i]}" "$bytes_color"
+    printf " | "
+    print_num_cell "$w_tb" "${tb_vals[$i]}" "$tb_color"
+    printf " |\n"
+done
+
+print_border
