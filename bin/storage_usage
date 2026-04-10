@@ -1,0 +1,82 @@
+#!/bin/bash
+set -euo pipefail
+
+OUTFILE="${OUTFILE:-$HOME/storage_usage.tsv}"
+TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-120}"
+DUST_BIN="${DUST_BIN:-/project/dremel_lab/cargo/bin/dust}"
+STANDARD="${STANDARD:-/standard/dremel_lab}"
+PROJECT="${PROJECT:-/project/dremel_lab}"
+TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
+
+mkdir -p "$(dirname "$OUTFILE")"
+
+if [[ ! -f "$OUTFILE" ]]; then
+    printf "timestamp\tlocation\tpath\tbytes\tterabytes\n" > "$OUTFILE"
+fi
+
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+
+bytes_to_tb() {
+    local bytes="$1"
+
+    if [[ ! "$bytes" =~ ^[0-9]+$ ]]; then
+        printf "NA"
+        return 0
+    fi
+
+    awk -v bytes="$bytes" 'BEGIN { printf "%.3f", bytes / 1000000000000 }'
+}
+
+measure() {
+    local name="$1"
+    local path="$2"
+    local outfile="$3"
+    local bytes="NA"
+    local terabytes="NA"
+
+    if [[ -z "$path" || ! -e "$path" ]]; then
+        printf "%s\t%s\t%s\t%s\t%s\n" "$TIMESTAMP" "$name" "${path:-UNSET}" "$bytes" "$terabytes" > "$outfile"
+        return 0
+    fi
+
+    if [[ ! -x "$DUST_BIN" ]]; then
+        printf "%s\t%s\t%s\t%s\t%s\n" "$TIMESTAMP" "$name" "$path" "$bytes" "$terabytes" > "$outfile"
+        return 0
+    fi
+
+    if command -v ionice >/dev/null 2>&1; then
+        bytes="$(
+            timeout "$TIMEOUT_SECONDS" ionice -c3 nice -n 19 \
+                "$DUST_BIN" -x -o b -n 1 -c -b -P "$path" 2>/dev/null \
+                | tr -d '\r' \
+                | tail -n1 \
+                | awk '{print $1}' \
+                | sed 's/B$//' || true
+        )"
+    else
+        bytes="$(
+            timeout "$TIMEOUT_SECONDS" nice -n 19 \
+                "$DUST_BIN" -x -o b -n 1 -c -b -P "$path" 2>/dev/null \
+                | tr -d '\r' \
+                | tail -n1 \
+                | awk '{print $1}' \
+                | sed 's/B$//' || true
+        )"
+    fi
+
+    terabytes="$(bytes_to_tb "${bytes:-NA}")"
+    printf "%s\t%s\t%s\t%s\t%s\n" "$TIMESTAMP" "$name" "$path" "${bytes:-NA}" "$terabytes" > "$outfile"
+}
+
+measure scratch "/scratch/$USER" "$tmpdir/scratch.tsv" &
+measure home "$HOME" "$tmpdir/home.tsv" &
+measure standard "$STANDARD" "$tmpdir/standard.tsv" &
+measure project "$PROJECT" "$tmpdir/project.tsv" &
+wait
+
+cat \
+    "$tmpdir/scratch.tsv" \
+    "$tmpdir/home.tsv" \
+    "$tmpdir/standard.tsv" \
+    "$tmpdir/project.tsv" >> "$OUTFILE"
