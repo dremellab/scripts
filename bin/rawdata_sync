@@ -1,0 +1,6 @@
+#!/bin/bash
+
+set -exo pipefail
+
+rsync -avh --update /standard/dremel_lab/rawdata/ /scratch/$USER/rawdata/
+rsync -avh --update /scratch/$USER/rawdata/ /standard/dremel_lab/rawdata/
