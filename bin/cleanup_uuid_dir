@@ -6,26 +6,38 @@ if [[ "${1:-}" == "--delete" ]]; then
     DELETE=true
 fi
 
-FOLDER="/scratch/${USER}"
+FOLDERS=(
+    "/scratch/${USER}"
+    "/scratch/${USER}/tmpdir"
+)
 UUID_BASENAME_REGEX='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
-echo "Scanning: ${FOLDER}"
+echo "Scanning:"
+for folder in "${FOLDERS[@]}"; do
+    printf '  %s\n' "$folder"
+done
 echo "Matching UUID-named directories older than 10 days..."
 echo
 
 dirs=()
-while IFS= read -r -d '' d; do
-    base=$(basename "$d")
-    if [[ $base =~ $UUID_BASENAME_REGEX ]]; then
-        dirs+=("$d")
+for folder in "${FOLDERS[@]}"; do
+    if [[ ! -d "$folder" ]]; then
+        continue
     fi
-done < <(
-    find "$FOLDER" \
-        -mindepth 1 -maxdepth 1 \
-        -type d \
-        -mtime +10 \
-        -print0
-)
+
+    while IFS= read -r -d '' d; do
+        base=$(basename "$d")
+        if [[ $base =~ $UUID_BASENAME_REGEX ]]; then
+            dirs+=("$d")
+        fi
+    done < <(
+        find "$folder" \
+            -mindepth 1 -maxdepth 1 \
+            -type d \
+            -mtime +10 \
+            -print0
+    )
+done
 
 if [[ ${#dirs[@]} -eq 0 ]]; then
     echo "No matching directories found."
