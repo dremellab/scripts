@@ -26,6 +26,7 @@ if $supports_color; then
     c_project=$'\033[38;5;220m'
     c_good=$'\033[38;5;120m'
     c_bad=$'\033[38;5;203m'
+    c_warn=$'\033[38;5;221m'
 else
     c_reset=""
     c_bold=""
@@ -38,6 +39,7 @@ else
     c_project=""
     c_good=""
     c_bad=""
+    c_warn=""
 fi
 
 mapfile -t rows < <(
@@ -62,10 +64,11 @@ mapfile -t rows < <(
                 }
                 bytes = f[4]
                 tb = (length(f[5]) > 0) ? f[5] : "NA"
+                source = (length(f[6]) > 0) ? f[6] : "live"
                 if (tb == "NA" && bytes ~ /^[0-9]+$/) {
                     tb = sprintf("%.3f", bytes / 1000000000000)
                 }
-                printf "%s\t%s\t%s\t%s\t%s\n", f[1], f[2], f[3], bytes, tb
+                printf "%s\t%s\t%s\t%s\t%s\t%s\n", f[1], f[2], f[3], bytes, tb, source
             }
         }
     ' "$INFILE"
@@ -77,24 +80,27 @@ if [[ ${#rows[@]} -eq 0 ]]; then
 fi
 
 timestamp=""
-declare -a locations paths bytes_vals tb_vals
+declare -a locations paths bytes_vals tb_vals sources
 w_location=8
 w_path=4
 w_bytes=5
 w_tb=2
+w_source=6
 
 for row in "${rows[@]}"; do
-    IFS=$'\t' read -r ts location path bytes tb <<< "$row"
+    IFS=$'\t' read -r ts location path bytes tb source <<< "$row"
     timestamp="$ts"
     locations+=("$location")
     paths+=("$path")
     bytes_vals+=("$bytes")
     tb_vals+=("$tb")
+    sources+=("${source:-live}")
 
     (( ${#location} > w_location )) && w_location=${#location}
     (( ${#path} > w_path )) && w_path=${#path}
     (( ${#bytes} > w_bytes )) && w_bytes=${#bytes}
     (( ${#tb} > w_tb )) && w_tb=${#tb}
+    (( ${#source} > w_source )) && w_source=${#source}
 done
 
 repeat_char() {
@@ -108,12 +114,13 @@ repeat_char() {
 }
 
 print_border() {
-    printf "%s+-%s-+-%s-+-%s-+-%s-+%s\n" \
+    printf "%s+-%s-+-%s-+-%s-+-%s-+-%s-+%s\n" \
         "$c_border" \
         "$(repeat_char "$w_location" "-")" \
         "$(repeat_char "$w_path" "-")" \
         "$(repeat_char "$w_bytes" "-")" \
         "$(repeat_char "$w_tb" "-")" \
+        "$(repeat_char "$w_source" "-")" \
         "$c_reset"
 }
 
@@ -142,11 +149,24 @@ location_color() {
 }
 
 value_color() {
-    if [[ "$1" == "NA" ]]; then
+    local value="$1"
+    local source="${2:-live}"
+
+    if [[ "$value" == "NA" ]]; then
         printf "%s" "$c_bad"
+    elif [[ "$source" == "cached" ]]; then
+        printf "%s" "$c_warn"
     else
         printf "%s" "$c_good"
     fi
+}
+
+source_color() {
+    case "$1" in
+        live) printf "%s" "$c_good" ;;
+        cached) printf "%s" "$c_warn" ;;
+        *) printf "%s" "$c_bad" ;;
+    esac
 }
 
 printf "%sStorage Usage Snapshot%s %s%s%s\n" "$c_bold" "$c_reset" "$c_dim" "$timestamp" "$c_reset"
@@ -159,13 +179,16 @@ printf " | "
 print_num_cell "$w_bytes" "Bytes" "$c_header"
 printf " | "
 print_num_cell "$w_tb" "TB" "$c_header"
+printf " | "
+print_text_cell "$w_source" "Source" "$c_header"
 printf " |\n"
 print_border
 
 for i in "${!locations[@]}"; do
     loc_color="$(location_color "${locations[$i]}")"
-    bytes_color="$(value_color "${bytes_vals[$i]}")"
-    tb_color="$(value_color "${tb_vals[$i]}")"
+    bytes_color="$(value_color "${bytes_vals[$i]}" "${sources[$i]}")"
+    tb_color="$(value_color "${tb_vals[$i]}" "${sources[$i]}")"
+    src_color="$(source_color "${sources[$i]}")"
 
     printf "| "
     print_text_cell "$w_location" "${locations[$i]}" "$loc_color"
@@ -175,6 +198,8 @@ for i in "${!locations[@]}"; do
     print_num_cell "$w_bytes" "${bytes_vals[$i]}" "$bytes_color"
     printf " | "
     print_num_cell "$w_tb" "${tb_vals[$i]}" "$tb_color"
+    printf " | "
+    print_text_cell "$w_source" "${sources[$i]}" "$src_color"
     printf " |\n"
 done
 

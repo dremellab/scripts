@@ -2,7 +2,7 @@
 set -euo pipefail
 
 OUTFILE="${OUTFILE:-$HOME/storage_usage.tsv}"
-TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-120}"
+TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-600}"
 DUST_BIN="${DUST_BIN:-/project/dremel_lab/cargo/bin/dust}"
 STANDARD="${STANDARD:-/standard/dremel_lab}"
 PROJECT="${PROJECT:-/project/dremel_lab}"
@@ -11,7 +11,7 @@ TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 mkdir -p "$(dirname "$OUTFILE")"
 
 if [[ ! -f "$OUTFILE" ]]; then
-    printf "timestamp\tlocation\tpath\tbytes\tterabytes\n" > "$OUTFILE"
+    printf "timestamp\tlocation\tpath\tbytes\tterabytes\tsource\n" > "$OUTFILE"
 fi
 
 tmpdir="$(mktemp -d)"
@@ -28,45 +28,77 @@ bytes_to_tb() {
     awk -v bytes="$bytes" 'BEGIN { printf "%.3f", bytes / 1000000000000 }'
 }
 
+lookup_cached_measurement() {
+    local name="$1"
+    local path="$2"
+
+    if [[ ! -f "$OUTFILE" ]]; then
+        return 1
+    fi
+
+    awk -F'\t' -v location="$name" -v target_path="$path" '
+        NR == 1 { next }
+        $2 == location && $3 == target_path && $4 ~ /^[0-9]+$/ {
+            bytes = $4
+            tb = ($5 ~ /^[0-9]+(\.[0-9]+)?$/) ? $5 : sprintf("%.3f", $4 / 1000000000000)
+        }
+        END {
+            if (bytes == "") {
+                exit 1
+            }
+            printf "%s\t%s\n", bytes, tb
+        }
+    ' "$OUTFILE"
+}
+
 measure() {
     local name="$1"
     local path="$2"
     local outfile="$3"
     local bytes="NA"
     local terabytes="NA"
+    local source="live"
+    local cached=""
 
     if [[ -z "$path" || ! -e "$path" ]]; then
-        printf "%s\t%s\t%s\t%s\t%s\n" "$TIMESTAMP" "$name" "${path:-UNSET}" "$bytes" "$terabytes" > "$outfile"
+        printf "%s\t%s\t%s\t%s\t%s\t%s\n" "$TIMESTAMP" "$name" "${path:-UNSET}" "$bytes" "$terabytes" "missing" > "$outfile"
         return 0
     fi
 
-    if [[ ! -x "$DUST_BIN" ]]; then
-        printf "%s\t%s\t%s\t%s\t%s\n" "$TIMESTAMP" "$name" "$path" "$bytes" "$terabytes" > "$outfile"
-        return 0
+    if [[ -x "$DUST_BIN" ]]; then
+        if command -v ionice >/dev/null 2>&1; then
+            bytes="$(
+                timeout "$TIMEOUT_SECONDS" ionice -c3 nice -n 19 \
+                    "$DUST_BIN" -x -o b -n 1 -c -b -P "$path" 2>/dev/null \
+                    | tr -d '\r' \
+                    | tail -n1 \
+                    | awk '{print $1}' \
+                    | sed 's/B$//' || true
+            )"
+        else
+            bytes="$(
+                timeout "$TIMEOUT_SECONDS" nice -n 19 \
+                    "$DUST_BIN" -x -o b -n 1 -c -b -P "$path" 2>/dev/null \
+                    | tr -d '\r' \
+                    | tail -n1 \
+                    | awk '{print $1}' \
+                    | sed 's/B$//' || true
+            )"
+        fi
     fi
 
-    if command -v ionice >/dev/null 2>&1; then
-        bytes="$(
-            timeout "$TIMEOUT_SECONDS" ionice -c3 nice -n 19 \
-                "$DUST_BIN" -x -o b -n 1 -c -b -P "$path" 2>/dev/null \
-                | tr -d '\r' \
-                | tail -n1 \
-                | awk '{print $1}' \
-                | sed 's/B$//' || true
-        )"
+    if [[ "${bytes:-}" =~ ^[0-9]+$ ]]; then
+        terabytes="$(bytes_to_tb "$bytes")"
+    elif cached="$(lookup_cached_measurement "$name" "$path" 2>/dev/null)"; then
+        IFS=$'\t' read -r bytes terabytes <<< "$cached"
+        source="cached"
     else
-        bytes="$(
-            timeout "$TIMEOUT_SECONDS" nice -n 19 \
-                "$DUST_BIN" -x -o b -n 1 -c -b -P "$path" 2>/dev/null \
-                | tr -d '\r' \
-                | tail -n1 \
-                | awk '{print $1}' \
-                | sed 's/B$//' || true
-        )"
+        bytes="NA"
+        terabytes="NA"
+        source="failed"
     fi
 
-    terabytes="$(bytes_to_tb "${bytes:-NA}")"
-    printf "%s\t%s\t%s\t%s\t%s\n" "$TIMESTAMP" "$name" "$path" "${bytes:-NA}" "$terabytes" > "$outfile"
+    printf "%s\t%s\t%s\t%s\t%s\t%s\n" "$TIMESTAMP" "$name" "$path" "$bytes" "$terabytes" "$source" > "$outfile"
 }
 
 measure scratch "/scratch/$USER" "$tmpdir/scratch.tsv" &
